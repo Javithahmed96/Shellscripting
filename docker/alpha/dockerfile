@@ -1,0 +1,45 @@
+# Use Alpine Linux as the base image
+FROM alpine:3.18
+
+# Set environment variables for MySQL root password and WordPress database
+ENV MYSQL_ROOT_PASSWORD=rootpassword
+ENV WORDPRESS_DB_NAME=wordpress
+ENV WORDPRESS_DB_USER=wpuser
+ENV WORDPRESS_DB_PASSWORD=wppassword
+
+# Install necessary packages
+RUN apk --no-cache add curl bash mysql-client php8-apache2 php8-gd php8-mysqli php8-zlib php8-curl php8-json php8-openssl php8-xml php8-phar php8-dom php8-ctype php8-mbstring php8-tokenizer php8-session php8-xmlwriter
+
+# Install WordPress
+RUN curl -O https://wordpress.org/latest.tar.gz && \
+    tar xzf latest.tar.gz && \
+    rm latest.tar.gz && \
+    mv wordpress/* /var/www/localhost/htdocs/ && \
+    rmdir wordpress
+
+# Configure Apache
+RUN mkdir -p /run/apache2
+RUN sed -i -e 's,DocumentRoot "/var/www/localhost/htdocs",DocumentRoot "/var/www/localhost/htdocs"\n<Directory "/var/www/localhost/htdocs">\nAllowOverride All\n</Directory>,' /etc/apache2/httpd.conf
+
+# Install and configure MySQL
+RUN mkdir -p /run/mysqld && \
+    mysql_install_db --user=mysql --ldata=/var/lib/mysql && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /usr/share/mysql/mysql_system_tables.sql && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /usr/share/mysql/errmsg.sys && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /etc/mysql/my.cnf && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /etc/mysql/mysql.user.sql && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /etc/mysql/create_system_tables.sql && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /etc/mysql/create_tables.sql && \
+    /usr/bin/mysqld --user=mysql --verbose=0 --skip-networking=0 --init-file=/etc/mysql/init.sql && \
+    rm -f /etc/mysql/init.sql && \
+    mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root mysql && \
+    /usr/bin/mysqld --user=mysql --bootstrap --verbose=0 --skip-name-resolve --skip-networking=0 < /etc/mysql/tz_import.sql && \
+    rm -f /etc/mysql/tz_import.sql && \
+    mysql -u root -e "CREATE DATABASE $WORDPRESS_DB_NAME;" && \
+    mysql -u root -e "CREATE USER '$WORDPRESS_DB_USER'@'localhost' IDENTIFIED BY '$WORDPRESS_DB_PASSWORD';" && \
+    mysql -u root -e "GRANT ALL ON $WORDPRESS_DB_NAME.* TO '$WORDPRESS_DB_USER'@'localhost';" && \
+    mysql -u root -e "FLUSH PRIVILEGES;"
+
+# Start Apache and enable it to run at container startup
+CMD ["httpd", "-D", "FOREGROUND"]
+
